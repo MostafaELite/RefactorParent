@@ -3,19 +3,10 @@ using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeFixes;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Microsoft.CodeAnalysis.Editing;
-using Microsoft.CodeAnalysis.FindSymbols;
-using Microsoft.CodeAnalysis.Rename;
-using Microsoft.CodeAnalysis.Text;
-using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.ComponentModel;
 using System.Composition;
-using System.Data;
 using System.Linq;
-using System.Reflection;
-using System.Reflection.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
 using Document = Microsoft.CodeAnalysis.Document;
@@ -25,18 +16,11 @@ namespace RefactorParent
     [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(RefactorParentCodeFixProvider)), Shared]
     public class RefactorParentCodeFixProvider : CodeFixProvider
     {
-        public sealed override ImmutableArray<string> FixableDiagnosticIds
-        {
-            get { return ImmutableArray.Create(RefactorParentAnalyzer.DiagnosticId); }
-        }
+        public sealed override ImmutableArray<string> FixableDiagnosticIds => ImmutableArray.Create("RefactorParent");
 
-        public sealed override FixAllProvider GetFixAllProvider()
-        {
-            // See https://github.com/dotnet/roslyn/blob/main/docs/analyzers/FixAllProvider.md for more information on Fix All Providers
-            return WellKnownFixAllProviders.BatchFixer;
-        }
+        public sealed override FixAllProvider GetFixAllProvider() => WellKnownFixAllProviders.BatchFixer;
 
-        private SymbolDisplayFormat parameterTypeFormat = new SymbolDisplayFormat(
+        private readonly SymbolDisplayFormat parameterTypeFormat = new SymbolDisplayFormat(
           typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameOnly,
           miscellaneousOptions: SymbolDisplayMiscellaneousOptions.UseSpecialTypes);
 
@@ -44,7 +28,7 @@ namespace RefactorParent
         {
             var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
 
-            var diagnostic = context.Diagnostics.First();
+            var diagnostic = context.Diagnostics.FirstOrDefault();
             var diagnosticSpan = diagnostic.Location.SourceSpan;
 
             // Find the type declaration identified by the diagnostic.
@@ -66,29 +50,28 @@ namespace RefactorParent
 
             var matchingSymbol = methodSymbol.ContainingType.Interfaces
                   .SelectMany(@interface => @interface.GetMembers())
-                  .FirstOrDefault(interfaceMemember => interfaceMemember.Name == methodSymbol.Name);
-
+                  .FirstOrDefault(interfaceMember => interfaceMember.Name == methodSymbol.Name);
 
             var solution = document.Project.Solution;
-            var optionSet = solution.Workspace.Options;
 
-            if (matchingSymbol is null)
+            if (!(matchingSymbol is IMethodSymbol matchingMethod))
                 return solution;
 
-            var matchingMethod = matchingSymbol as IMethodSymbol;
-            var parentMethodRoot = matchingMethod.DeclaringSyntaxReferences.First().SyntaxTree.GetRoot();
-            var parentMethodDeclration = parentMethodRoot.FindToken(matchingMethod.Locations.First().SourceSpan.Start).Parent
+
+            var parentMethodRoot = await matchingMethod.DeclaringSyntaxReferences.First().SyntaxTree.GetRootAsync(cancellationToken);
+            var parentMethodDeclaration = parentMethodRoot.FindToken(matchingMethod.Locations.First().SourceSpan.Start).Parent
                 .AncestorsAndSelf()
                 .OfType<MethodDeclarationSyntax>()
                 .FirstOrDefault();
 
-            if (parentMethodDeclration == null)
+            if (parentMethodDeclaration == null)
                 return solution;
 
             var newParameters = GetNewParameters(methodSymbol);
             var newGenericReturnType = GetNewReturnType(methodSymbol);
 
-            var updatedMethod = parentMethodDeclration
+            var updatedMethod = parentMethodDeclaration
+                .RemoveNodes(parentMethodDeclaration.ParameterList.ChildNodes(), SyntaxRemoveOptions.KeepNoTrivia)
                 .AddParameterListParameters(newParameters.ToArray())
                 .WithReturnType(newGenericReturnType);
 
@@ -98,7 +81,7 @@ namespace RefactorParent
                 return solution;
 
             var parentDocRoot = await parentMethodDoc.GetSyntaxRootAsync(cancellationToken);
-            var updatedSyntaxTree = parentDocRoot.ReplaceNode(parentMethodDeclration, updatedMethod);
+            var updatedSyntaxTree = parentDocRoot.ReplaceNode(parentMethodDeclaration, updatedMethod);
 
             solution = solution.WithDocumentSyntaxRoot(parentMethodDoc.Id, updatedSyntaxTree);
             return solution;
@@ -128,9 +111,9 @@ namespace RefactorParent
         private TypeSyntax GetNewReturnType(IMethodSymbol methodSymbol)
         {
             var newReturnType = methodSymbol.ReturnType as INamedTypeSymbol;
-            if (!newReturnType.IsGenericType)            
+            if (!newReturnType.IsGenericType)
                 return SyntaxFactory.ParseTypeName(newReturnType.ToDisplayString(parameterTypeFormat));
-            
+
             var genericArguments = newReturnType.TypeArguments
                 .Select(genericArg => SyntaxFactory
                 .ParseTypeName(genericArg.ToDisplayString(parameterTypeFormat)))
