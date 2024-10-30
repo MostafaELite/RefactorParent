@@ -5,10 +5,13 @@
 		<DisplayName>RefactorParent</DisplayName>
 		<Description xml:space="preserve">This is a sample diagnostic extension for the .NET Compiler Platform ("Roslyn").</Description>
 	</Metadata>
+
 	<Installation>
 		<InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[15.0,17.0)">
+			<ProductArchitecture>x86</ProductArchitecture>
 		</InstallationTarget>
-		<InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.0,18.0)">			
+		<InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.0,18.0)">
+			<ProductArchitecture>x86</ProductArchitecture>
 		</InstallationTarget>
 	</Installation>
 	<Dependencies>

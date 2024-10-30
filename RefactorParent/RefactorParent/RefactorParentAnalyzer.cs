@@ -34,22 +34,26 @@ namespace RefactorParent
         private static void AnalyzeSymbol(SymbolAnalysisContext context)
         {
             var methodSymbol = (context.Symbol as IMethodSymbol);
-            var matchingSymbol = methodSymbol.ContainingType.Interfaces
+            var matchingSymbol = methodSymbol
+                .ContainingType
+                .Interfaces
                 .SelectMany(@interface => @interface.GetMembers())
                 .FirstOrDefault(interfaceMember => interfaceMember.Name == methodSymbol.Name);
 
             if (matchingSymbol == null)
                 return;
 
-            var hasIssues = false;
             var parameters = methodSymbol.Parameters;
 
             var parentMethod = matchingSymbol as IMethodSymbol;
             var parentParameters = parentMethod.Parameters;
 
-            if (parameters.Length != parentParameters.Length)
-                hasIssues = true;
-            else
+            var hasDifferentNumberOfParams = parameters.Length == parentParameters.Length;
+            var hasDifferentReturnTypes = parentMethod.ReturnType.Name != methodSymbol.ReturnType.Name;
+
+            var hasMismatch = hasDifferentNumberOfParams || hasDifferentReturnTypes;
+
+            if (!hasMismatch)
             {
                 foreach (var implementationParameter in parameters)
                 {
@@ -59,14 +63,14 @@ namespace RefactorParent
                         parent.NullableAnnotation == implementationParameter.NullableAnnotation);
 
                     if (!parameterMatch)
-                        hasIssues = true;
+                    {
+                        hasMismatch = true;
+                        break;
+                    }
                 }
             }
 
-            if (parentMethod.ReturnType.Name != methodSymbol.ReturnType.Name)
-                hasIssues = true;
-
-            if (!hasIssues)
+            if (!hasMismatch)
                 return;
 
             var diagnostic = Diagnostic.Create(Rule, methodSymbol.Locations[0], methodSymbol.Name);
