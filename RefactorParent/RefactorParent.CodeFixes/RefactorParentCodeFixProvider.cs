@@ -57,7 +57,6 @@ namespace RefactorParent
             if (!(matchingSymbol is IMethodSymbol matchingMethod))
                 return solution;
 
-
             var parentMethodRoot = await matchingMethod.DeclaringSyntaxReferences.First().SyntaxTree.GetRootAsync(cancellationToken);
             var parentMethodDeclaration = parentMethodRoot.FindToken(matchingMethod.Locations.First().SourceSpan.Start).Parent
                 .AncestorsAndSelf()
@@ -108,9 +107,9 @@ namespace RefactorParent
             return parentMethodDoc;
         }
 
-        private TypeSyntax GetNewReturnType(IMethodSymbol methodSymbol)
+        private TypeSyntax GetNewReturnType(IMethodSymbol implementingMethod)
         {
-            var newReturnType = methodSymbol.ReturnType as INamedTypeSymbol;
+            var newReturnType = implementingMethod.ReturnType as INamedTypeSymbol;
             if (!newReturnType.IsGenericType)
                 return SyntaxFactory.ParseTypeName(newReturnType.ToDisplayString(parameterTypeFormat));
 
@@ -125,16 +124,41 @@ namespace RefactorParent
             return newGenericReturnType;
         }
 
-        private IEnumerable<ParameterSyntax> GetNewParameters(IMethodSymbol methodSymbol)
+        private IEnumerable<ParameterSyntax> GetNewParameters(IMethodSymbol implementingMethod)
         {
             var newParameters = new List<ParameterSyntax>();
-            foreach (var param in methodSymbol.Parameters)
+            foreach (var implementationParam in implementingMethod.Parameters)
             {
-                var paramType = SyntaxFactory.ParseTypeName(param.Type.ToDisplayString(parameterTypeFormat));
+                var implementationParamType = SyntaxFactory.ParseTypeName(implementationParam.Type.ToDisplayString(parameterTypeFormat));
+
+                var newParamType = implementationParam.Type as INamedTypeSymbol;
+
+                if (newParamType.IsGenericType)
+                {
+                    var genericArguments = newParamType.TypeArguments
+                        .Select(genericArg => SyntaxFactory
+                        .ParseTypeName(genericArg.ToDisplayString(parameterTypeFormat)))
+                        .ToArray();
+
+                    var newGenericParamType = SyntaxFactory
+                        .GenericName(newParamType.Name)
+                        .AddTypeArgumentListArguments(genericArguments) as TypeSyntax;
+
+                    var newGenericParam = SyntaxFactory
+                                  .Parameter(SyntaxFactory.Identifier(implementationParam.Name))
+                                  .WithType(newGenericParamType);
+
+                    newParameters.Add(newGenericParam);
+
+                    continue;
+                }
+
                 var newParam = SyntaxFactory
-                    .Parameter(SyntaxFactory.Identifier(param.Name))
-                    .WithType(paramType);
+                         .Parameter(SyntaxFactory.Identifier(implementationParam.Name))
+                         .WithType(implementationParamType);
+
                 newParameters.Add(newParam);
+
             }
 
             return newParameters;
